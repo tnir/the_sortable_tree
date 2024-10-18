@@ -43,22 +43,31 @@ module TheSortableTreeController
     include DefineDeprecatedMethods
     public
     def rebuild
-      id        = params[:id].to_i
+      id = params[:id].to_i
       parent_id = params[:parent_id].to_i
-      prev_id   = params[:prev_id].to_i
-      next_id   = params[:next_id].to_i
+      prev_id = params[:prev_id].to_i
+      next_id = params[:next_id].to_i
 
       return head_respond(:no_content) if parent_id.zero? && prev_id.zero? && next_id.zero?
 
       variable, collection, klass = self.the_define_common_variables
       variable = self.instance_variable_set(variable, klass.find(id))
 
-      if prev_id.zero? && next_id.zero?
-        variable.move_to_child_of klass.find(parent_id)
-      elsif !prev_id.zero?
-        variable.move_to_right_of klass.find(prev_id)
-      elsif !next_id.zero?
-        variable.move_to_left_of klass.find(next_id)
+      begin
+        ApplicationRecord.transaction do
+          if prev_id.zero? && next_id.zero?
+            variable.move_to_child_of klass.find(parent_id)
+          elsif !prev_id.zero?
+            variable.move_to_right_of klass.find(prev_id)
+          elsif !next_id.zero?
+            variable.move_to_left_of klass.find(next_id)
+          end
+          raise ActiveRecord::RecordInvalid.new(variable) unless variable.valid?
+        end
+      rescue ActiveRecord::RecordInvalid => e
+        respond_to do |format|
+          format.js { render js: "alert('#{e.message}'); window.location = '#{polymorphic_url([@ns, current_company, collection.to_sym])}'", status: 400 }
+        end and return
       end
 
       head_respond
